@@ -3722,10 +3722,31 @@ LegalizerHelper::lowerBitcast(MachineInstr &MI) {
     SmallVector<Register, 8> SrcRegs;
 
     if (DstTy.isVector()) {
+      LLT DstEltTy = DstTy.getElementType();
       int NumDstElt = DstTy.getNumElements();
       int NumSrcElt = SrcTy.getNumElements();
 
-      LLT DstEltTy = DstTy.getElementType();
+      if (NumSrcElt % NumDstElt != 0 && NumDstElt % NumSrcElt != 0) {
+        // Split non-integer element ratio bitcast
+        //
+        // %1:_(<3 x s16>) = G_BITCAST %0:_(<2 x s24>)
+        //
+        // =>
+        //
+        // %2:_(<6 x s8>) = G_BITCAST %0:_(<2 x s24>)
+        // %1:_(<3 x s16>) = G_BITCAST %0:_(<6 x s8>)
+        int SrcEltSize = SrcEltTy.getSizeInBits();
+        int DstEltSize = DstEltTy.getSizeInBits();
+        int PieceSize = std::gcd(SrcEltSize, DstEltSize);
+        LLT PieceTy = LLT::integer(PieceSize);
+        int NumPieces = SrcTy.getSizeInBits() / PieceSize;
+        LLT PiecesVecTy = LLT::fixed_vector(NumPieces, PieceTy);
+        Register PiecesReg = MIRBuilder.buildBitcast(PiecesVecTy, Src).getReg(0);
+        MIRBuilder.buildBitcast(Dst, PiecesReg).getReg(0);
+        MI.eraseFromParent();
+        return Legalized;
+      }
+
       LLT DstCastTy = DstEltTy; // Intermediate bitcast result type
       LLT SrcPartTy = SrcEltTy; // Original unmerge result type.
 
@@ -3739,7 +3760,7 @@ LegalizerHelper::lowerBitcast(MachineInstr &MI) {
         // %2:_(s16), %3:_(s16) = G_UNMERGE_VALUES %0
         // %3:_(<2 x s8>) = G_BITCAST %2
         // %4:_(<2 x s8>) = G_BITCAST %3
-        // %1:_(<4 x s16>) = G_CONCAT_VECTORS %3, %4
+        // %1:_(<4 x s8>) = G_CONCAT_VECTORS %3, %4
         DstCastTy = DstTy.changeVectorElementCount(
             ElementCount::getFixed(NumDstElt / NumSrcElt));
         SrcPartTy = SrcEltTy;
@@ -9345,13 +9366,32 @@ LegalizerHelper::lowerMergeValues(MachineInstr &MI) {
   LLT WideTy = LLT::integer(DstTy.getSizeInBits());
   Register ResultReg = MIRBuilder.buildZExt(WideTy, Src0Reg).getReg(0);
 
-  for (unsigned I = 2; I != NumOps; ++I) {
-    const unsigned Offset = (I - 1) * PartSize;
+  // A part that is undef or a zero constant contributes no set bits to the
+  // result, so it can be dropped from the shift/or chain. Emitting `or x, 0`
+  // for such parts would otherwise survive as redundant noise once the wide
+  // result is narrowed (e.g. undef high parts introduced by combining
+  // anyext(merge) into a wider merge).
+  auto ContributesBits = [&](Register R) {
+    return !mi_match(R, MRI, m_GImplicitDef()) &&
+           !mi_match(R, MRI, m_SpecificICst(0));
+  };
 
+  // Find the last contributing part so its OR can still be written directly
+  // into DstReg, matching the shape of the all-parts-contribute case.
+  unsigned LastContribOp = 0;
+  for (unsigned I = 2; I != NumOps; ++I)
+    if (ContributesBits(MI.getOperand(I).getReg()))
+      LastContribOp = I;
+
+  for (unsigned I = 2; I != NumOps; ++I) {
     Register SrcReg = MI.getOperand(I).getReg();
+    if (!ContributesBits(SrcReg))
+      continue;
+
+    const unsigned Offset = (I - 1) * PartSize;
     auto ZextInput = MIRBuilder.buildZExt(WideTy, SrcReg);
 
-    Register NextResult = I + 1 == NumOps && WideTy == DstTy ? DstReg :
+    Register NextResult = I == LastContribOp && WideTy == DstTy ? DstReg :
       MRI.createGenericVirtualRegister(WideTy);
 
     auto ShiftAmt = MIRBuilder.buildConstant(WideTy, Offset);
@@ -9359,6 +9399,11 @@ LegalizerHelper::lowerMergeValues(MachineInstr &MI) {
     MIRBuilder.buildOr(NextResult, ResultReg, Shl);
     ResultReg = NextResult;
   }
+
+  // If no higher part contributed, the result is just the (zero-extended) low
+  // part; make sure it lands in DstReg.
+  if (!DstTy.isPointer() && WideTy == DstTy && ResultReg != DstReg)
+    MIRBuilder.buildCopy(DstReg, ResultReg);
 
   if (DstTy.isPointer()) {
     if (MIRBuilder.getDataLayout().isNonIntegralAddressSpace(

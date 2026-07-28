@@ -1169,35 +1169,44 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST)
 
   getActionDefinitionsBuilder(G_BLOCK_ADDR).legalFor({p0});
 
-  // Merge/Unmerge
-  for (unsigned Op : {G_MERGE_VALUES, G_UNMERGE_VALUES}) {
-    unsigned BigTyIdx = Op == G_MERGE_VALUES ? 0 : 1;
-    unsigned LitTyIdx = Op == G_MERGE_VALUES ? 1 : 0;
-    getActionDefinitionsBuilder(Op)
-        .widenScalarToNextPow2(LitTyIdx, 8)
-        .widenScalarToNextPow2(BigTyIdx, 32)
-        .clampScalar(LitTyIdx, s8, s64)
-        .clampScalar(BigTyIdx, s32, s128)
-        .legalIf([=](const LegalityQuery &Q) {
-          switch (Q.Types[BigTyIdx].getSizeInBits()) {
-          case 32:
-          case 64:
-          case 128:
-            break;
-          default:
-            return false;
-          }
-          switch (Q.Types[LitTyIdx].getSizeInBits()) {
-          case 8:
-          case 16:
-          case 32:
-          case 64:
-            return true;
-          default:
-            return false;
-          }
-        });
-  }
+  getActionDefinitionsBuilder(G_MERGE_VALUES)
+      .widenScalarToNextPow2(1, 8)
+      .clampScalar(1, s8, s64)
+      .legalIf([=](const LegalityQuery &Q) {
+        unsigned BigTySize = Q.Types[0].getSizeInBits();
+        unsigned LitTySize = Q.Types[1].getSizeInBits();
+
+        return (BigTySize == 2 * LitTySize) &&
+               (BigTySize == 64 || BigTySize == 128);
+      })
+      .lowerIf([=](const LegalityQuery &Q) {
+        return Q.Types[0].isScalar() && Q.Types[1].isScalar();
+      });
+
+  getActionDefinitionsBuilder(G_UNMERGE_VALUES)
+      .widenScalarToNextPow2(0, 8)
+      .widenScalarToNextPow2(1, 32)
+      .clampScalar(0, s8, s64)
+      .clampScalar(1, s32, s128)
+      .legalIf([=](const LegalityQuery &Q) {
+        switch (Q.Types[1].getSizeInBits()) {
+        case 32:
+        case 64:
+        case 128:
+          break;
+        default:
+          return false;
+        }
+        switch (Q.Types[0].getSizeInBits()) {
+        case 8:
+        case 16:
+        case 32:
+        case 64:
+          return true;
+        default:
+          return false;
+        }
+      });
 
   // TODO : nxv4s16, nxv2s16, nxv2s32
   getActionDefinitionsBuilder(G_EXTRACT_VECTOR_ELT)

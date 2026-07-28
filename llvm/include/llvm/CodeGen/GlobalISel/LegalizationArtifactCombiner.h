@@ -112,6 +112,35 @@ public:
         return true;
       }
     }
+
+    // aext(merge x0, ..., xn) -> merge x0, ..., xn, undef, ..., undef
+    if (SrcMI->getOpcode() == TargetOpcode::G_MERGE_VALUES) {
+      const LLT DstTy = MRI.getType(DstReg);
+      const LLT SrcTy = MRI.getType(SrcReg);
+      LLT PieceTy = MRI.getType(SrcMI->getOperand(1).getReg());
+      unsigned PieceSize = PieceTy.getSizeInBits();
+      unsigned ExtBits = DstTy.getSizeInBits() - SrcTy.getSizeInBits();
+
+      // Mirror the trunc(merge) combine's legality check: only fold when the
+      // resulting merge is not unsupported on the target. This keeps this rule
+      // symmetric with tryCombineTrunc's G_MERGE_VALUES case so the two cannot
+      // oscillate, while still refusing targets where a wide merge is
+      // genuinely unsupported.
+      if (PieceSize && (ExtBits % PieceSize) == 0 &&
+          !isInstUnsupported({TargetOpcode::G_MERGE_VALUES, {DstTy, PieceTy}})) {
+        SmallVector<Register, 8> Parts;
+        for (unsigned I = 1, E = SrcMI->getNumOperands(); I != E; ++I)
+          Parts.push_back(SrcMI->getOperand(I).getReg());
+        for (unsigned I = 0, N = ExtBits / PieceSize; I != N; ++I)
+          Parts.push_back(Builder.buildUndef(PieceTy).getReg(0));
+
+        Builder.buildMergeLikeInstr(DstReg, Parts);
+        UpdatedDefs.push_back(DstReg);
+        markInstAndDefDead(MI, *SrcMI, DeadInsts);
+        return true;
+      }
+    }
+
     return tryFoldImplicitDef(MI, DeadInsts, UpdatedDefs, Observer);
   }
 

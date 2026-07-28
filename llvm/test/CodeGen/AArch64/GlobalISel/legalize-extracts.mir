@@ -328,8 +328,9 @@ body: |
     ; CHECK-LABEL: name: s64_from_s264
     ; CHECK: liveins: $x0
     ; CHECK-NEXT: {{  $}}
-    ; CHECK-NEXT: [[DEF:%[0-9]+]]:_(s64) = G_IMPLICIT_DEF
-    ; CHECK-NEXT: %extract:_(s64) = COPY [[DEF]](s64)
+    ; CHECK-NEXT: [[C:%[0-9]+]]:_(i64) = G_CONSTANT i64 0
+    ; CHECK-NEXT: [[COPY:%[0-9]+]]:_(s64) = COPY [[C]](i64)
+    ; CHECK-NEXT: %extract:_(s64) = COPY [[COPY]](s64)
     ; CHECK-NEXT: $x0 = COPY %extract(s64)
     ; CHECK-NEXT: RET_ReallyLR implicit $x0
     %val:_(s264) = G_IMPLICIT_DEF
@@ -347,9 +348,25 @@ body: |
     ; CHECK: liveins: $h0
     ; CHECK-NEXT: {{  $}}
     ; CHECK-NEXT: %h0:_(s16) = COPY $h0
-    ; CHECK-NEXT: [[MV:%[0-9]+]]:_(s64) = G_MERGE_VALUES %h0(s16), %h0(s16), %h0(s16), %h0(s16)
-    ; CHECK-NEXT: [[EXTRACT:%[0-9]+]]:_(s16) = G_EXTRACT [[MV]](s64), 1
-    ; CHECK-NEXT: %extract:_(s16) = COPY [[EXTRACT]](s16)
+    ; CHECK-NEXT: [[C:%[0-9]+]]:_(i64) = G_CONSTANT i64 16
+    ; CHECK-NEXT: [[C1:%[0-9]+]]:_(i64) = G_CONSTANT i64 0
+    ; CHECK-NEXT: [[C2:%[0-9]+]]:_(i16) = G_CONSTANT i16 0
+    ; CHECK-NEXT: [[ZEXT:%[0-9]+]]:_(i64) = G_ZEXT %h0(s16)
+    ; CHECK-NEXT: [[COPY:%[0-9]+]]:_(i64) = COPY [[ZEXT]](i64)
+    ; CHECK-NEXT: [[SHL:%[0-9]+]]:_(i64) = G_SHL [[COPY]], [[C]](i64)
+    ; CHECK-NEXT: [[C3:%[0-9]+]]:_(i64) = G_CONSTANT i64 48
+    ; CHECK-NEXT: [[OR:%[0-9]+]]:_(i64) = G_OR [[COPY]], [[SHL]]
+    ; CHECK-NEXT: [[C4:%[0-9]+]]:_(i64) = G_CONSTANT i64 32
+    ; CHECK-NEXT: [[SHL1:%[0-9]+]]:_(i64) = G_SHL [[COPY]], [[C4]](i64)
+    ; CHECK-NEXT: [[OR1:%[0-9]+]]:_(i64) = G_OR [[OR]], [[SHL1]]
+    ; CHECK-NEXT: [[SHL2:%[0-9]+]]:_(i64) = G_SHL [[COPY]], [[C3]](i64)
+    ; CHECK-NEXT: [[OR2:%[0-9]+]]:_(i64) = G_OR [[OR1]], [[SHL2]]
+    ; CHECK-NEXT: [[OR3:%[0-9]+]]:_(i64) = G_OR [[OR2]], [[C1]]
+    ; CHECK-NEXT: [[OR4:%[0-9]+]]:_(i64) = G_OR [[OR3]], [[C1]]
+    ; CHECK-NEXT: [[OR5:%[0-9]+]]:_(i64) = G_OR [[OR4]], [[C1]]
+    ; CHECK-NEXT: [[OR6:%[0-9]+]]:_(i64) = G_OR [[OR5]], [[C1]]
+    ; CHECK-NEXT: [[OR7:%[0-9]+]]:_(s64) = G_OR [[OR6]], [[C1]]
+    ; CHECK-NEXT: %extract:_(s16) = G_EXTRACT [[OR7]](s64), 1
     ; CHECK-NEXT: $h0 = COPY %extract(s16)
     ; CHECK-NEXT: RET_ReallyLR implicit $h0
     %h0:_(s16) = COPY $h0
@@ -368,9 +385,25 @@ body: |
     ; CHECK: liveins: $h0, $w0
     ; CHECK-NEXT: {{  $}}
     ; CHECK-NEXT: %h0:_(s16) = COPY $h0
-    ; CHECK-NEXT: [[MV:%[0-9]+]]:_(s64) = G_MERGE_VALUES %h0(s16), %h0(s16), %h0(s16), %h0(s16)
-    ; CHECK-NEXT: [[EXTRACT:%[0-9]+]]:_(s32) = G_EXTRACT [[MV]](s64), 1
-    ; CHECK-NEXT: %extract:_(s32) = COPY [[EXTRACT]](s32)
+    ; CHECK-NEXT: [[C:%[0-9]+]]:_(i64) = G_CONSTANT i64 16
+    ; CHECK-NEXT: [[C1:%[0-9]+]]:_(i64) = G_CONSTANT i64 0
+    ; CHECK-NEXT: [[C2:%[0-9]+]]:_(i16) = G_CONSTANT i16 0
+    ; CHECK-NEXT: [[ZEXT:%[0-9]+]]:_(i64) = G_ZEXT %h0(s16)
+    ; CHECK-NEXT: [[COPY:%[0-9]+]]:_(i64) = COPY [[ZEXT]](i64)
+    ; CHECK-NEXT: [[SHL:%[0-9]+]]:_(i64) = G_SHL [[COPY]], [[C]](i64)
+    ; CHECK-NEXT: [[C3:%[0-9]+]]:_(i64) = G_CONSTANT i64 48
+    ; CHECK-NEXT: [[OR:%[0-9]+]]:_(i64) = G_OR [[COPY]], [[SHL]]
+    ; CHECK-NEXT: [[C4:%[0-9]+]]:_(i64) = G_CONSTANT i64 32
+    ; CHECK-NEXT: [[SHL1:%[0-9]+]]:_(i64) = G_SHL [[COPY]], [[C4]](i64)
+    ; CHECK-NEXT: [[OR1:%[0-9]+]]:_(i64) = G_OR [[OR]], [[SHL1]]
+    ; CHECK-NEXT: [[SHL2:%[0-9]+]]:_(i64) = G_SHL [[COPY]], [[C3]](i64)
+    ; CHECK-NEXT: [[OR2:%[0-9]+]]:_(i64) = G_OR [[OR1]], [[SHL2]]
+    ; CHECK-NEXT: [[OR3:%[0-9]+]]:_(i64) = G_OR [[OR2]], [[C1]]
+    ; CHECK-NEXT: [[OR4:%[0-9]+]]:_(i64) = G_OR [[OR3]], [[C1]]
+    ; CHECK-NEXT: [[OR5:%[0-9]+]]:_(i64) = G_OR [[OR4]], [[C1]]
+    ; CHECK-NEXT: [[OR6:%[0-9]+]]:_(i64) = G_OR [[OR5]], [[C1]]
+    ; CHECK-NEXT: [[OR7:%[0-9]+]]:_(s64) = G_OR [[OR6]], [[C1]]
+    ; CHECK-NEXT: %extract:_(s32) = G_EXTRACT [[OR7]](s64), 1
     ; CHECK-NEXT: $w0 = COPY %extract(s32)
     ; CHECK-NEXT: RET_ReallyLR implicit $w0
     %h0:_(s16) = COPY $h0
