@@ -9366,32 +9366,13 @@ LegalizerHelper::lowerMergeValues(MachineInstr &MI) {
   LLT WideTy = LLT::integer(DstTy.getSizeInBits());
   Register ResultReg = MIRBuilder.buildZExt(WideTy, Src0Reg).getReg(0);
 
-  // A part that is undef or a zero constant contributes no set bits to the
-  // result, so it can be dropped from the shift/or chain. Emitting `or x, 0`
-  // for such parts would otherwise survive as redundant noise once the wide
-  // result is narrowed (e.g. undef high parts introduced by combining
-  // anyext(merge) into a wider merge).
-  auto ContributesBits = [&](Register R) {
-    return !mi_match(R, MRI, m_GImplicitDef()) &&
-           !mi_match(R, MRI, m_SpecificICst(0));
-  };
-
-  // Find the last contributing part so its OR can still be written directly
-  // into DstReg, matching the shape of the all-parts-contribute case.
-  unsigned LastContribOp = 0;
-  for (unsigned I = 2; I != NumOps; ++I)
-    if (ContributesBits(MI.getOperand(I).getReg()))
-      LastContribOp = I;
-
   for (unsigned I = 2; I != NumOps; ++I) {
-    Register SrcReg = MI.getOperand(I).getReg();
-    if (!ContributesBits(SrcReg))
-      continue;
-
     const unsigned Offset = (I - 1) * PartSize;
+
+    Register SrcReg = MI.getOperand(I).getReg();
     auto ZextInput = MIRBuilder.buildZExt(WideTy, SrcReg);
 
-    Register NextResult = I == LastContribOp && WideTy == DstTy ? DstReg :
+    Register NextResult = I + 1 == NumOps && WideTy == DstTy ? DstReg :
       MRI.createGenericVirtualRegister(WideTy);
 
     auto ShiftAmt = MIRBuilder.buildConstant(WideTy, Offset);
@@ -9399,11 +9380,6 @@ LegalizerHelper::lowerMergeValues(MachineInstr &MI) {
     MIRBuilder.buildOr(NextResult, ResultReg, Shl);
     ResultReg = NextResult;
   }
-
-  // If no higher part contributed, the result is just the (zero-extended) low
-  // part; make sure it lands in DstReg.
-  if (!DstTy.isPointer() && WideTy == DstTy && ResultReg != DstReg)
-    MIRBuilder.buildCopy(DstReg, ResultReg);
 
   if (DstTy.isPointer()) {
     if (MIRBuilder.getDataLayout().isNonIntegralAddressSpace(
