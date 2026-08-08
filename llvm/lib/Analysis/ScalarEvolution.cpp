@@ -15975,9 +15975,11 @@ void ScalarEvolution::LoopGuards::collectFromBlock(
     // Puts rewrite rule \p From -> \p To into the rewrite map. Also if \p From
     // and \p FromRewritten are the same (i.e. there has been no rewrite
     // registered for \p From), then puts this value in the list of rewritten
-    // expressions.
+    // expressions. Rewrites that do not narrow \p From are dropped.
     auto AddRewrite = [&](const SCEV *From, const SCEV *FromRewritten,
                           const SCEV *To) {
+      if (To == FromRewritten)
+        return;
       if (From == FromRewritten)
         ExprsToRewrite.push_back(From);
       RewriteMap[From] = To;
