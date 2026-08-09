@@ -1716,6 +1716,10 @@ private:
   // Mark SCEVUnknown Phis currently being processed by isImpliedViaMerge.
   SmallPtrSet<const PHINode *, 6> PendingMerges;
 
+  /// Mark AddRecs currently being processed by
+  /// isKnownPredicateViaAddRecExtremum.
+  SmallPtrSet<const SCEVAddRecExpr *, 4> PendingAddRecExtremum;
+
   /// Set to true by isLoopBackedgeGuardedByCond when we're walking the set of
   /// conditions dominating the backedge of a loop.
   bool WalkingBEDominatingConds = false;
@@ -2360,6 +2364,17 @@ private:
   /// prove them individually.
   bool isKnownPredicateViaSplitting(CmpPredicate Pred, SCEVUse LHS,
                                     SCEVUse RHS);
+
+  /// Try to prove the condition described by "LHS Pred RHS", where \p LHS is an
+  /// affine AddRec that does not self-wrap and \p RHS is invariant in its loop,
+  /// by proving it for the extreme value \p LHS takes in that loop.
+  ///
+  /// A no-self-wrap AddRec with a constant step is monotonic, so it reaches its
+  /// extreme values on the first and the last iteration. The value on the last
+  /// iteration is known if the loop has a computable symbolic max backedge
+  /// taken count, even when the range of the AddRec is not.
+  bool isKnownPredicateViaAddRecExtremum(CmpPredicate Pred, SCEVUse LHS,
+                                         SCEVUse RHS);
 
   /// Try to match the Expr as "(L + R)<Flags>".
   bool splitBinaryAdd(SCEVUse Expr, SCEVUse &L, SCEVUse &R,

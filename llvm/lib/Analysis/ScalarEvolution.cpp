@@ -11449,6 +11449,98 @@ bool ScalarEvolution::isKnownViaInduction(CmpPredicate Pred, SCEVUse LHS,
          isLoopEntryGuardedByCond(MDL, Pred, SplitLHS.first, SplitRHS.first);
 }
 
+bool ScalarEvolution::isKnownPredicateViaAddRecExtremum(CmpPredicate Pred,
+                                                        SCEVUse LHS,
+                                                        SCEVUse RHS) {
+  // Determine which extreme value of LHS the predicate is hardest for: a lower
+  // bound on LHS has to hold for its minimum, an upper bound for its maximum.
+  bool NeedMin;
+  switch (Pred) {
+  case ICmpInst::ICMP_SGT:
+  case ICmpInst::ICMP_SGE:
+  case ICmpInst::ICMP_UGT:
+  case ICmpInst::ICMP_UGE:
+    NeedMin = true;
+    break;
+  case ICmpInst::ICMP_SLT:
+  case ICmpInst::ICMP_SLE:
+  case ICmpInst::ICMP_ULT:
+  case ICmpInst::ICMP_ULE:
+    NeedMin = false;
+    break;
+  default:
+    return false;
+  }
+
+  const auto *AddRec = dyn_cast<SCEVAddRecExpr>(LHS);
+  if (!AddRec || !AddRec->isAffine() || !AddRec->hasNoSelfWrap() ||
+      AddRec->getType()->isPointerTy())
+    return false;
+
+  // Only deal with a constant step, so that the AddRec is monotonic.
+  const auto *Step = dyn_cast<SCEVConstant>(AddRec->getStepRecurrence(*this));
+  if (!Step || Step->getValue()->isZero())
+    return false;
+
+  const Loop *L = AddRec->getLoop();
+  if (!isLoopInvariant(RHS, L) || !isAvailableAtLoopEntry(RHS, L))
+    return false;
+
+  const SCEV *BECount = getSymbolicMaxBackedgeTakenCount(L);
+  if (isa<SCEVCouldNotCompute>(BECount) ||
+      getTypeSizeInBits(BECount->getType()) >
+          getTypeSizeInBits(AddRec->getType()))
+    return false;
+
+  // The queries below can recursively ask about the same AddRec.
+  if (!PendingAddRecExtremum.insert(AddRec).second)
+    return false;
+  llvm::scope_exit ClearOnExit(
+      [&]() { PendingAddRecExtremum.erase(AddRec); });
+
+  // The no-self-wrap flag may have been inferred from an exit whose count is
+  // not known, so prove that we cannot wrap during BECount iterations.
+  const SCEV *MaxBECount = getNoopOrZeroExtend(BECount, AddRec->getType());
+  const SCEV *RangeWidth = getMinusOne(AddRec->getType());
+  const SCEV *StepAbs = getUMinExpr(Step, getNegativeSCEV(Step));
+  const SCEV *MaxItersWithoutWrap = getUDivExpr(RangeWidth, StepAbs);
+  if (!isKnownPredicateViaConstantRanges(ICmpInst::ICMP_ULE, MaxBECount,
+                                         MaxItersWithoutWrap))
+    return false;
+
+  // Both extreme values are known: the AddRec starts at Start and, as it is
+  // monotonic, ends at End on the last iteration it can execute.
+  const SCEV *Start = AddRec->getStart();
+  const SCEV *End = AddRec->evaluateAtIteration(MaxBECount, *this);
+
+  // The facts below are established at the loop preheader, so both endpoints
+  // have to be computable there.
+  if (!isAvailableAtLoopEntry(Start, L) || !isAvailableAtLoopEntry(End, L))
+    return false;
+
+  bool StepIsNegative = Step->getAPInt().isNegative();
+  SCEVUse Extreme = (StepIsNegative == NeedMin) ? End : Start;
+
+  // Check the predicate first: it fails for the vast majority of queries that
+  // get this far, and both checks walk the guards of the loop.
+  //
+  // Note that using the extreme over the maximum iteration range is
+  // conservative: if the loop runs fewer iterations, the real extreme is
+  // between Extreme and the value the predicate is easiest for.
+  if (!isLoopEntryGuardedByCond(L, Pred, Extreme, RHS))
+    return false;
+
+  // Establish that the values really do run from Start to End in the order the
+  // predicate compares in, i.e. that the AddRec does not step across the
+  // signed/unsigned boundary. Together with the no-wrap flag this makes it
+  // monotonic in that order, so Start and End really are its extremes.
+  bool IsSigned = ICmpInst::isSigned(Pred);
+  ICmpInst::Predicate ArcPred =
+      StepIsNegative ? (IsSigned ? ICmpInst::ICMP_SGE : ICmpInst::ICMP_UGE)
+                     : (IsSigned ? ICmpInst::ICMP_SLE : ICmpInst::ICMP_ULE);
+  return isLoopEntryGuardedByCond(L, ArcPred, Start, End);
+}
+
 bool ScalarEvolution::isKnownPredicate(CmpPredicate Pred, SCEVUse LHS,
                                        SCEVUse RHS) {
   // Canonicalize the inputs first.
@@ -11461,7 +11553,11 @@ bool ScalarEvolution::isKnownPredicate(CmpPredicate Pred, SCEVUse LHS,
     return true;
 
   // Otherwise see what can be done with some simple reasoning.
-  return isKnownViaNonRecursiveReasoning(Pred, LHS, RHS);
+  if (isKnownViaNonRecursiveReasoning(Pred, LHS, RHS))
+    return true;
+
+  // Last resort, so that only queries that would otherwise fail pay for it.
+  return isKnownPredicateViaAddRecExtremum(Pred, LHS, RHS);
 }
 
 std::optional<bool> ScalarEvolution::evaluatePredicate(CmpPredicate Pred,
@@ -14112,6 +14208,7 @@ ScalarEvolution::ScalarEvolution(ScalarEvolution &&Arg)
       ValueExprMap(std::move(Arg.ValueExprMap)),
       PendingLoopPredicates(std::move(Arg.PendingLoopPredicates)),
       PendingMerges(std::move(Arg.PendingMerges)),
+      PendingAddRecExtremum(std::move(Arg.PendingAddRecExtremum)),
       ConstantMultipleCache(std::move(Arg.ConstantMultipleCache)),
       BackedgeTakenCounts(std::move(Arg.BackedgeTakenCounts)),
       PredicatedBackedgeTakenCounts(
@@ -14155,6 +14252,8 @@ ScalarEvolution::~ScalarEvolution() {
 
   assert(PendingLoopPredicates.empty() && "isImpliedCond garbage");
   assert(PendingMerges.empty() && "isImpliedViaMerge garbage");
+  assert(PendingAddRecExtremum.empty() &&
+         "isKnownPredicateViaAddRecExtremum garbage");
   assert(!WalkingBEDominatingConds && "isLoopBackedgeGuardedByCond garbage!");
   assert(!ProvingSplitPredicate && "ProvingSplitPredicate garbage!");
 }

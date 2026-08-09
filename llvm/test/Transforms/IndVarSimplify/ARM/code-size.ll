@@ -52,11 +52,7 @@ define void @expandOuterRecurrence(i32 %arg) nounwind #0 {
 ; CHECK-V8M:       outer.preheader:
 ; CHECK-V8M-NEXT:    br label [[OUTER:%.*]]
 ; CHECK-V8M:       outer:
-; CHECK-V8M-NEXT:    [[I:%.*]] = phi i32 [ [[I_INC:%.*]], [[OUTER_INC:%.*]] ], [ 0, [[OUTER_PREHEADER]] ]
-; CHECK-V8M-NEXT:    [[SUB2:%.*]] = sub nsw i32 [[ARG]], [[I]]
-; CHECK-V8M-NEXT:    [[SUB3:%.*]] = sub nsw i32 [[SUB2]], 1
-; CHECK-V8M-NEXT:    [[CMP2:%.*]] = icmp slt i32 0, [[SUB3]]
-; CHECK-V8M-NEXT:    br i1 [[CMP2]], label [[INNER_PH:%.*]], label [[OUTER_INC]]
+; CHECK-V8M-NEXT:    br i1 true, label [[INNER_PH:%.*]], label [[OUTER_INC:%.*]]
 ; CHECK-V8M:       inner.ph:
 ; CHECK-V8M-NEXT:    br label [[INNER:%.*]]
 ; CHECK-V8M:       inner:
@@ -64,7 +60,6 @@ define void @expandOuterRecurrence(i32 %arg) nounwind #0 {
 ; CHECK-V8M:       outer.inc.loopexit:
 ; CHECK-V8M-NEXT:    br label [[OUTER_INC]]
 ; CHECK-V8M:       outer.inc:
-; CHECK-V8M-NEXT:    [[I_INC]] = add nuw nsw i32 [[I]], 1
 ; CHECK-V8M-NEXT:    br i1 false, label [[OUTER]], label [[EXIT_LOOPEXIT:%.*]]
 ; CHECK-V8M:       exit.loopexit:
 ; CHECK-V8M-NEXT:    br label [[EXIT]]
@@ -79,11 +74,7 @@ define void @expandOuterRecurrence(i32 %arg) nounwind #0 {
 ; CHECK-V8A:       outer.preheader:
 ; CHECK-V8A-NEXT:    br label [[OUTER:%.*]]
 ; CHECK-V8A:       outer:
-; CHECK-V8A-NEXT:    [[I:%.*]] = phi i32 [ [[I_INC:%.*]], [[OUTER_INC:%.*]] ], [ 0, [[OUTER_PREHEADER]] ]
-; CHECK-V8A-NEXT:    [[SUB2:%.*]] = sub nsw i32 [[ARG]], [[I]]
-; CHECK-V8A-NEXT:    [[SUB3:%.*]] = sub nsw i32 [[SUB2]], 1
-; CHECK-V8A-NEXT:    [[CMP2:%.*]] = icmp slt i32 0, [[SUB3]]
-; CHECK-V8A-NEXT:    br i1 [[CMP2]], label [[INNER_PH:%.*]], label [[OUTER_INC]]
+; CHECK-V8A-NEXT:    br i1 true, label [[INNER_PH:%.*]], label [[OUTER_INC:%.*]]
 ; CHECK-V8A:       inner.ph:
 ; CHECK-V8A-NEXT:    br label [[INNER:%.*]]
 ; CHECK-V8A:       inner:
@@ -91,7 +82,6 @@ define void @expandOuterRecurrence(i32 %arg) nounwind #0 {
 ; CHECK-V8A:       outer.inc.loopexit:
 ; CHECK-V8A-NEXT:    br label [[OUTER_INC]]
 ; CHECK-V8A:       outer.inc:
-; CHECK-V8A-NEXT:    [[I_INC]] = add nuw nsw i32 [[I]], 1
 ; CHECK-V8A-NEXT:    br i1 false, label [[OUTER]], label [[EXIT_LOOPEXIT:%.*]]
 ; CHECK-V8A:       exit.loopexit:
 ; CHECK-V8A-NEXT:    br label [[EXIT]]

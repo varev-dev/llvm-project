@@ -176,11 +176,7 @@ define void @predicated_outside_loop_signed_pos(i32 %arg) nounwind #0 {
 ; CHECK:       outer.preheader:
 ; CHECK-NEXT:    br label [[OUTER:%.*]]
 ; CHECK:       outer:
-; CHECK-NEXT:    [[I:%.*]] = phi i32 [ [[I_INC:%.*]], [[OUTER_INC:%.*]] ], [ 0, [[OUTER_PREHEADER]] ]
-; CHECK-NEXT:    [[SUB2:%.*]] = sub nsw i32 [[ARG]], [[I]]
-; CHECK-NEXT:    [[SUB3:%.*]] = sub nsw i32 [[SUB2]], 1
-; CHECK-NEXT:    [[CMP2:%.*]] = icmp slt i32 0, [[SUB3]]
-; CHECK-NEXT:    br i1 [[CMP2]], label [[INNER_PH:%.*]], label [[OUTER_INC]]
+; CHECK-NEXT:    br i1 true, label [[INNER_PH:%.*]], label [[OUTER_INC:%.*]]
 ; CHECK:       inner.ph:
 ; CHECK-NEXT:    br label [[INNER:%.*]]
 ; CHECK:       inner:
@@ -188,7 +184,6 @@ define void @predicated_outside_loop_signed_pos(i32 %arg) nounwind #0 {
 ; CHECK:       outer.inc.loopexit:
 ; CHECK-NEXT:    br label [[OUTER_INC]]
 ; CHECK:       outer.inc:
-; CHECK-NEXT:    [[I_INC]] = add nuw nsw i32 [[I]], 1
 ; CHECK-NEXT:    br i1 false, label [[OUTER]], label [[EXIT_LOOPEXIT:%.*]]
 ; CHECK:       exit.loopexit:
 ; CHECK-NEXT:    br label [[EXIT]]
